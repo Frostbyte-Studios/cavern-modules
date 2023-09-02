@@ -1,0 +1,10 @@
+[package]
+name = "rust-modules"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crossbeam-channel = "0.5"
+arc-swap = "1.6"
+parking_lot = "0.12"
+thiserror = "1.0"
