@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use game_loop::winit::{platform::windows::EventLoopBuilderExtWindows, event_loop::EventLoopBuilder};
+
 use crate::*;
 
 #[test]
@@ -7,15 +9,17 @@ fn modules() {
     let mut modules = Modules::new();
     modules.add_module(TestModule1::default());
     modules.add_module(TestModule2::default());
-    modules.start();
+    modules.start((), EventLoopBuilder::new().with_any_thread(true).build(), WindowBuilder::new(), 60, 0.1, |g| {
+        thread::sleep(Duration::from_millis(550));
 
-    thread::sleep(Duration::from_millis(550));
+        g.game.1.exit.emit(&()).unwrap();
 
-    modules.exit.emit(&()).unwrap();
+        thread::sleep(Duration::from_millis(1000));
 
-    thread::sleep(Duration::from_millis(1000));
+        println!("Exiting Main");
 
-    println!("Exiting Main");
+        g.exit();
+    }, |_| {}, |_, _,| {});
 }
 
 #[derive(Default)]
@@ -25,7 +29,7 @@ struct TestModule1 {
 }
 
 impl Module for TestModule1 {
-    fn run(self, exit: Exit, _hooks: Hooks) {
+    fn run(self, exit: Exit, _update: Update, _hooks: Hooks) {
         loop {
             if exit.should_exit() {
                 println!("Exiting 1");
@@ -58,7 +62,7 @@ impl Module for TestModule1 {
 struct TestModule2;
 
 impl Module for TestModule2 {
-    fn run(self, exit: Exit, hooks: Hooks) {
+    fn run(self, exit: Exit, _update: Update, hooks: Hooks) {
         let (handler1, handler2) = hooks
             .get::<TestModule1, _>(|hook| {
                 (
