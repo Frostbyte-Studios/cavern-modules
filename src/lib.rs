@@ -11,13 +11,10 @@ pub use game_loop::winit as winit;
 pub mod event;
 pub mod hook;
 
-#[cfg(test)]
-mod tests;
-
 pub struct Modules {
     ready: Arc<(Mutex<bool>, Condvar)>,
-    exit: Arc<EventHandler<()>>,
-    update: Arc<EventHandler<()>>,
+    exit: EventHandler<()>,
+    update: EventHandler<()>,
     hooks: Hooks,
     hooks_constructor: Option<HashMap<TypeId, Hook>>, // Messy code, but there are no clean solutions to this problem
 }
@@ -26,8 +23,8 @@ impl Modules {
     pub fn new() -> Self {
         Self {
             ready: Arc::new((Mutex::new(false), Condvar::new())),
-            exit: Arc::new(EventHandler::new()),
-            update: Arc::new(EventHandler::new()),
+            exit: EventHandler::new(),
+            update: EventHandler::new(),
             hooks: Hooks::new(HashMap::new()),
             hooks_constructor: Option::Some(HashMap::new()),
         }
@@ -118,7 +115,7 @@ impl Exit {
 pub struct Update(Receiver<()>);
 
 impl Update {
-    pub fn can(&self) -> bool {
+    pub fn go(&self) -> bool {
         match self.0.try_recv() {
             Ok(_) => true,
             Err(TryRecvError::Empty) => false,

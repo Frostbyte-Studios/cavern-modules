@@ -1,8 +1,9 @@
 use std::{collections::HashMap, any::{TypeId, Any}, sync::Arc};
 
 use arc_swap::ArcSwap;
+use crossbeam_channel::Receiver;
 
-use crate::event::EventHandler;
+use crate::event::InnerEventHandler;
 
 #[derive(Clone)]
 pub struct Hooks(Arc<ArcSwap<HashMap<TypeId, Hook>>>);
@@ -29,19 +30,29 @@ impl Hooks {
     }*/
 }
 
-pub struct Hook(HashMap<&'static str, Box<dyn Any + Send + Sync>>);
+pub struct Hook(Arc<dyn Any + Send + Sync>, HashMap<&'static str, Arc<dyn Any + Send + Sync>>);
 
 impl Hook {
-    pub fn new() -> Self {
-        Self(HashMap::new())
+    pub fn new<T: Send + Sync + 'static>(state: T) -> Self {
+        Self(Arc::new(state), HashMap::new())
     }
 
-    pub fn add<T: Send + 'static>(&mut self, id: &'static str, handler: EventHandler<T>) {
-        self.0.insert(id, Box::new(handler));
+    pub fn with<T: Send + 'static>(mut self, id: &'static str, handler: InnerEventHandler<T>) -> Self {
+        self.1.insert(id, Arc::new(handler));
+        self
     }
 
-    pub fn get<T: 'static>(&self, id: &'static str) -> Option<&EventHandler<T>> {
-        let any = self.0.get(&id)?;
-        any.downcast_ref::<EventHandler<T>>()
+    pub fn add<T: Send + 'static>(&mut self, id: &'static str, handler: InnerEventHandler<T>) {
+        self.1.insert(id, Arc::new(handler));
+    }
+
+    pub fn get<T: Clone + 'static>(&self, id: &'static str) -> Option<Receiver<T>> {
+        let any = self.1.get(&id)?;
+        let handler = any.downcast_ref::<InnerEventHandler<T>>()?;
+        Some(handler.subscribe())
+    }
+
+    pub fn state<T: 'static>(&self) -> Option<&T> {
+        self.0.downcast_ref::<T>()
     }
 }

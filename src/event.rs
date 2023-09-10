@@ -1,14 +1,32 @@
-use std::sync::Arc;
+use std::{sync::Arc, ops::Deref};
 
 use crossbeam_channel::{Sender, Receiver, TrySendError};
 use parking_lot::RwLock;
 
 #[derive(Clone, Default)]
-pub struct EventHandler<T>(Arc<RwLock<Vec<Sender<T>>>>);
+pub struct EventHandler<T>(Arc<InnerEventHandler<T>>);
+
+impl<T> Deref for EventHandler<T> {
+    type Target = Arc<InnerEventHandler<T>>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl<T: Clone> EventHandler<T> {
     pub fn new() -> Self {
-        Self(Arc::new(RwLock::new(Vec::new())))
+        Self(Arc::new(InnerEventHandler::new()))
+    }
+}
+
+#[derive(Default)]
+pub struct InnerEventHandler<T>(RwLock<Vec<Sender<T>>>);
+
+impl<T: Clone> InnerEventHandler<T> {
+    pub fn new() -> Self {
+        Self(RwLock::new(Vec::new()))
     }
 
     pub fn emit(&self, data: &T) -> Result<(), TrySendError<T>> {
