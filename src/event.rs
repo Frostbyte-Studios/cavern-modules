@@ -4,7 +4,7 @@ use crossbeam_channel::{Sender, Receiver, TrySendError};
 use parking_lot::RwLock;
 
 #[derive(Clone, Default)]
-pub struct EventHandler<T>(Arc<InnerEventHandler<T>>);
+pub struct EventHandler<T>(pub(crate) Arc<InnerEventHandler<T>>);
 
 impl<T> Deref for EventHandler<T> {
     type Target = Arc<InnerEventHandler<T>>;

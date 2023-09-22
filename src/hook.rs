@@ -3,7 +3,7 @@ use std::{collections::HashMap, any::{TypeId, Any}, sync::Arc};
 use arc_swap::ArcSwap;
 use crossbeam_channel::Receiver;
 
-use crate::event::InnerEventHandler;
+use crate::event::{InnerEventHandler, EventHandler};
 
 #[derive(Clone)]
 pub struct Hooks(Arc<ArcSwap<HashMap<TypeId, Hook>>>);
@@ -37,13 +37,13 @@ impl Hook {
         Self(Arc::new(state), HashMap::new())
     }
 
-    pub fn with<T: Send + 'static>(mut self, id: &'static str, handler: InnerEventHandler<T>) -> Self {
-        self.1.insert(id, Arc::new(handler));
+    pub fn with<T: Send + 'static>(mut self, id: &'static str, handler: EventHandler<T>) -> Self {
+        self.1.insert(id, handler.0);
         self
     }
 
-    pub fn add<T: Send + 'static>(&mut self, id: &'static str, handler: InnerEventHandler<T>) {
-        self.1.insert(id, Arc::new(handler));
+    pub fn add<T: Send + 'static>(&mut self, id: &'static str, handler: EventHandler<T>) {
+        self.1.insert(id, handler.0);
     }
 
     pub fn get<T: Clone + 'static>(&self, id: &'static str) -> Option<Receiver<T>> {

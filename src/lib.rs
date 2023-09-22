@@ -2,11 +2,8 @@ use std::{any::TypeId, collections::HashMap, sync::Arc, thread};
 
 use crossbeam_channel::{Receiver, TryRecvError};
 use event::EventHandler;
-use game_loop::{game_loop, GameLoop, Time, winit::{window::{Window, WindowBuilder}, event::Event, event_loop::EventLoop}};
 use hook::{Hook, Hooks};
 use parking_lot::{Condvar, Mutex};
-
-pub use game_loop::winit as winit;
 
 pub mod event;
 pub mod hook;
@@ -34,13 +31,69 @@ impl Modules {
         *self = Modules::new();
     }
 
+    #[cfg(not(feature = "window"))]
+    pub fn start<S, U, R>(
+        mut self,
+        state: S,
+        updates_per_second: u32,
+        max_frame_time: f64,
+        mut update: U,
+        mut render: R,
+    ) -> game_loop::GameLoop<(S, Self), game_loop::Time, ()>
+    where
+        S: 'static,
+        U: FnMut(&mut game_loop::GameLoop<(S, Self), game_loop::Time, ()>)
+            + 'static,
+        R: FnMut(&mut game_loop::GameLoop<(S, Self), game_loop::Time, ()>)
+            + 'static,
+    {
+        use game_loop::game_loop;
+
+        // Construct hooks from the hooks constructor
+        self.hooks.reload(self.hooks_constructor.take().unwrap());
+
+        {
+            *self.ready.0.lock() = true;
+            self.ready.1.notify_all();
+        }
+
+        game_loop(
+            (state, self),
+            updates_per_second,
+            max_frame_time,
+            move |g| {
+                let _ = g.game.1.update.emit(&());
+                update(g)
+            },
+            move |g| {
+                render(g)
+            },
+        )
+    }
+
     /// The max frame time is maximum time in seconds that the render function can take before the update function starts getting called less frequently
-    pub fn start<S, U, R, H>(mut self, state: S, event_loop: EventLoop<()>, window: WindowBuilder, updates_per_second: u32, max_frame_time: f64, mut update: U, mut render: R, mut events: H) -> GameLoop<(S, Self), Time, ()>
-        where
-            S: 'static,
-            U: FnMut(&mut GameLoop<(S, Self), Time, Arc<Window>>) + 'static,
-            R: FnMut(&mut GameLoop<(S, Self), Time, Arc<Window>>) + 'static,
-            H: FnMut(&mut GameLoop<(S, Self), Time, Arc<Window>>, &Event<'_, ()>) + 'static,
+    #[cfg(feature = "window")]
+    pub fn start<S, U, R, H>(
+        mut self,
+        state: S,
+        event_loop: winit::event_loop::EventLoop<()>,
+        window: winit::window::WindowBuilder,
+        updates_per_second: u32,
+        max_frame_time: f64,
+        mut update: U,
+        mut render: R,
+        mut events: H,
+    ) -> game_loop::GameLoop<(S, Self), game_loop::Time, ()>
+    where
+        S: 'static,
+        U: FnMut(&mut game_loop::GameLoop<(S, Self), game_loop::Time, Arc<winit::window::Window>>)
+            + 'static,
+        R: FnMut(&mut game_loop::GameLoop<(S, Self), game_loop::Time, Arc<winit::window::Window>>)
+            + 'static,
+        H: FnMut(
+                &mut game_loop::GameLoop<(S, Self), game_loop::Time, Arc<winit::window::Window>>,
+                &winit::event::Event<'_, ()>,
+            ) + 'static,
     {
         // Construct hooks from the hooks constructor
         self.hooks.reload(self.hooks_constructor.take().unwrap());
@@ -52,15 +105,23 @@ impl Modules {
 
         let window = Arc::new(window.build(&event_loop).unwrap());
 
-        game_loop(event_loop, window, (state, self), updates_per_second, max_frame_time,
-        move |g| {
-            let _ = g.game.1.update.emit(&());
-            update(g)
-        }, move |g| {
-            render(g)
-        }, move |g, e| {
-            events(g, e)
-        })
+        crate::windowed::game_loop(
+            event_loop,
+            window,
+            (state, self),
+            updates_per_second,
+            max_frame_time,
+            move |g| {
+                let _ = g.game.1.update.emit(&());
+                update(g)
+            },
+            move |g| {
+                render(g)
+            },
+            move |g, e| {
+                events(g, e)
+            },
+        )
     }
 
     pub fn add_module<M: Module + Send + 'static>(&mut self, mut module: M) {
@@ -121,5 +182,46 @@ impl Update {
             Err(TryRecvError::Empty) => false,
             Err(TryRecvError::Disconnected) => false,
         }
+    }
+}
+
+#[cfg(feature="window")]
+mod windowed {
+    use std::sync::Arc;
+    use game_loop::{GameLoop, Time};
+    use winit::event::{Event, WindowEvent};
+    use winit::event_loop::{ControlFlow, EventLoop};
+    use winit::window::Window;
+
+    pub fn game_loop<G, U, R, H, T>(event_loop: EventLoop<T>, window: Arc<Window>, game: G, updates_per_second: u32, max_frame_time: f64, mut update: U, mut render: R, mut handler: H) -> !
+        where G: 'static,
+              U: FnMut(&mut GameLoop<G, Time, Arc<Window>>) + 'static,
+              R: FnMut(&mut GameLoop<G, Time, Arc<Window>>) + 'static,
+              H: FnMut(&mut GameLoop<G, Time, Arc<Window>>, &Event<'_, T>) + 'static,
+              T: 'static,
+    {
+        let mut game_loop = GameLoop::new(game, updates_per_second, max_frame_time, window);
+
+        event_loop.run(move |event, _, control_flow| {
+            *control_flow = ControlFlow::Poll;
+
+            // Forward events to existing handlers.
+            handler(&mut game_loop, &event);
+
+            match event {
+                Event::RedrawRequested(_) => {
+                    if !game_loop.next_frame(&mut update, &mut render) {
+                        *control_flow = ControlFlow::Exit;
+                    }
+                },
+                Event::MainEventsCleared => {
+                    game_loop.window.request_redraw();
+                },
+                Event::WindowEvent { event: WindowEvent::Occluded(occluded), .. } => {
+                    game_loop.window_occluded = occluded;
+                },
+                _ => {},
+            }
+        })
     }
 }
