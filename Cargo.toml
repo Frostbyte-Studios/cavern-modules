@@ -8,7 +8,7 @@ crossbeam-channel = "0.5"
 arc-swap = "1.6"
 parking_lot = "0.12"
 thiserror = "1.0"
-game-loop = "1.0"
+game-loop = { git = "https://github.com/Frostbyte-Studios/game-loop" }
 winit = { version = "0.28", optional = true }
 
 [features]
