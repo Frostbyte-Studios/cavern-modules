@@ -176,7 +176,7 @@ impl Exit {
 pub struct Update(Receiver<()>);
 
 impl Update {
-    pub fn go(&self) -> bool {
+    pub fn tick(&self) -> bool {
         match self.0.try_recv() {
             Ok(_) => true,
             Err(TryRecvError::Empty) => false,
