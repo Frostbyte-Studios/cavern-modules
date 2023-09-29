@@ -8,6 +8,9 @@ use parking_lot::{Condvar, Mutex};
 pub mod event;
 pub mod hook;
 
+#[cfg(test)]
+mod tests;
+
 pub struct Modules {
     ready: Arc<(Mutex<bool>, Condvar)>,
     exit: EventHandler<()>,
@@ -150,14 +153,27 @@ impl Modules {
                 }
                 drop(started);
 
-                module.run(exit_receiver, update_receiver, hooks)
+                module.start(&hooks);
+                loop {
+                    if exit_receiver.should_exit() {
+                        break;
+                    }
+
+                    if update_receiver.tick() {
+                        module.update(&hooks);
+                    }
+
+                    module.render(&hooks);
+                }
             })
             .unwrap();
     }
 }
 
 pub trait Module {
-    fn run(self, exit: Exit, update: Update, hooks: Hooks);
+    fn start(&mut self, hooks: &Hooks);
+    fn render(&mut self, hook: &Hooks);
+    fn update(&mut self, hooks: &Hooks);
     fn hook(&mut self) -> Hook;
 }
 
